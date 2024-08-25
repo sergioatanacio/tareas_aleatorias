@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distribución de Tareas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+        <h1 class="text-2xl font-bold mb-4">Distribución de Tareas</h1>
+        
+        <div class="mb-4">
+            <label for="taskInput" class="block mb-2">Ingrese las tareas (una por línea):</label>
+            <textarea id="taskInput" rows="5" class="w-full p-2 border rounded"></textarea>
+        </div>
+        
+        <div class="flex flex-wrap gap-2 mb-4">
+            <button id="distributeBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Distribuir Tareas</button>
+            <button id="copyBtn" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Copiar Tareas</button>
+            <button id="saveBtn" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Guardar Tareas</button>
+            <input type="file" id="loadFile" class="hidden" accept=".json">
+            <button id="loadBtn" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">Cargar Tareas</button>
+        </div>
+        
+        <div id="calendar" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+    <script>
+        const startDate = new Date('2024-08-14');
+        const endDate = new Date('2029-08-14');
+        const calendar = document.getElementById('calendar');
+        const taskInput = document.getElementById('taskInput');
+        const distributeBtn = document.getElementById('distributeBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const loadBtn = document.getElementById('loadBtn');
+        const loadFile = document.getElementById('loadFile');
+        
+        let tasks = {};
+        let allTasks = [];
+
+        function generateDates() {
+            let currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+                const dateString = currentDate.toISOString().split('T')[0];
+                if (!tasks[dateString]) {
+                    tasks[dateString] = [];
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        }
+
+        function renderCalendar() {
+            calendar.innerHTML = '';
+            for (const date in tasks) {
+                const dateElement = document.createElement('div');
+                dateElement.className = 'bg-gray-200 p-4 rounded';
+                dateElement.innerHTML = `
+                    <h3 class="font-bold">${date}</h3>
+                    <ul class="list-disc pl-5">
+                        ${tasks[date].map(task => `
+                            <li class="flex justify-between items-center">
+                                <span>${task.time} - ${task.text}</span>
+                                <button class="delete-task text-red-500 hover:text-red-700" data-date="${date}" data-task="${task.text}" data-time="${task.time}">×</button>
+                            </li>
+                        `).join('')}
+                    </ul>
+                `;
+                calendar.appendChild(dateElement);
+            }
+
+            // Add event listeners to delete buttons
+            document.querySelectorAll('.delete-task').forEach(button => {
+                button.addEventListener('click', function() {
+                    const date = this.dataset.date;
+                    const task = this.dataset.task;
+                    const time = this.dataset.time;
+                    if (confirm(`¿Estás seguro de que quieres eliminar una repetición de la tarea "${task}" del ${date} a las ${time}?`)) {
+                        deleteTask(date, task, time);
+                    }
+                });
+            });
+        }
+
+        function deleteTask(date, taskToDelete, time) {
+            // Remove the task from the specific date
+            tasks[date] = tasks[date].filter(task => !(task.text === taskToDelete && task.time === time));
+
+            // Reduce the frequency of the task in allTasks
+            const taskIndex = allTasks.findIndex(task => task.text === taskToDelete);
+            if (taskIndex !== -1) {
+                allTasks[taskIndex].frequency--;
+                if (allTasks[taskIndex].frequency === 0) {
+                    allTasks.splice(taskIndex, 1);
+                }
+            }
+
+            renderCalendar();
+        }
+
+        function getRandomTime() {
+            const hour = Math.floor(Math.random() * (22 - 6 + 1)) + 6;
+            const minute = Math.floor(Math.random() * 60);
+            return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        }
+
+        function distributeTasks() {
+            // Reset all dates
+            for (let date in tasks) {
+                tasks[date] = [];
+            }
+
+            const newTasks = taskInput.value.split('\n').filter(task => task.trim() !== '');
+            
+            // Add new tasks to allTasks
+            newTasks.forEach(task => {
+                const match = task.match(/^\((\d+)\)(.+)/);
+                let frequency = 1;
+                let taskText = task;
+                
+                if (match) {
+                    frequency = parseInt(match[1]);
+                    taskText = match[2].trim();
+                }
+
+                const existingTaskIndex = allTasks.findIndex(t => t.text === taskText);
+                if (existingTaskIndex !== -1) {
+                    allTasks[existingTaskIndex].frequency += frequency;
+                } else {
+                    allTasks.push({ text: taskText, frequency: frequency });
+                }
+            });
+
+            // Distribute all tasks more uniformly
+            const availableDates = Object.keys(tasks);
+            let dateIndex = 0;
+
+            allTasks.forEach(task => {
+                for (let i = 0; i < task.frequency; i++) {
+                    if (availableDates.length > 0) {
+                        const randomTime = getRandomTime();
+                        tasks[availableDates[dateIndex]].push({text: task.text, time: randomTime});
+                        dateIndex = (dateIndex + 1) % availableDates.length;
+                    }
+                }
+            });
+            
+            // Sort tasks by time for each date
+            for (let date in tasks) {
+                tasks[date].sort((a, b) => a.time.localeCompare(b.time));
+            }
+            
+            taskInput.value = '';
+            renderCalendar();
+        }
+
+        function copyTasks() {
+            let tasksSummary = allTasks.map(task => `(${task.frequency})${task.text}`).join('\n');
+            navigator.clipboard.writeText(tasksSummary).then(() => {
+                alert('Tareas copiadas al portapapeles');
+            });
+        }
+
+        function saveTasks() {
+            const data = JSON.stringify({ tasks, allTasks });
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tareas.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function loadTasks(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    const data = JSON.parse(content);
+                    tasks = data.tasks;
+                    allTasks = data.allTasks;
+                    renderCalendar();
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        generateDates();
+        renderCalendar();
+
+        distributeBtn.addEventListener('click', distributeTasks);
+        copyBtn.addEventListener('click', copyTasks);
+        saveBtn.addEventListener('click', saveTasks);
+        loadBtn.addEventListener('click', () => loadFile.click());
+        loadFile.addEventListener('change', loadTasks);
+    </script>
+</body>
+</html>
